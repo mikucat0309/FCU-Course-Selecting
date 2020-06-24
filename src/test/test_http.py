@@ -31,23 +31,44 @@ class TestHttp(unittest.TestCase):
 
     def test_query(self):
         self.test_login()
-        m = self.course.query(1411)
+        m = self.course.wishquery(1411)
         self.assertNotEqual(m, {})
 
-    def test_add_remove_wish(self):
+    def test_wish_add_remove_update(self):
         self.test_login()
-        m = self.course.get_wishmap()
+        m = self.course.wishmap()
         l1 = list(m.keys())
-        l1.append(1141)
+        l1.append(1411)
 
-        self.course.addwish(1141)
-        m2 = self.course.get_wishmap()
+        self.course.wishadd(1411)
+        m2 = self.course.wishmap()
         l2 = list(m2.keys())
         self.assertListEqual(l1, l2)
 
-        self.course.removewish(1141)
-        m3 = self.course.get_wishmap()
+        self.course.wishremove(1411)
+        m3 = self.course.wishmap()
         self.assertDictEqual(m, m3)
+
+    def test_wish_addcourse(self):
+        self.test_login()
+        m1 = self.course.wishmap()
+        l1 = list(m1.keys())
+        l1.append(1411)
+
+        self.course.wishadd(1411)
+        l2 = list(self.course.wishmap().keys())
+        self.assertListEqual(l1, l2)
+
+        self.course.wish_addcourse(1411)
+        m3 = self.course.wishmap()
+        self.assertDictEqual(m1, m3)
+
+    def test_wish_register(self):
+        self.test_login()
+        self.course.wishadd(1411)
+        total, opened = self.course.wish_register(1411)
+        self.assertIsNotNone(total)
+        self.assertIsNotNone(opened)
 
 
 if __name__ == "__main__":
