@@ -157,3 +157,16 @@ class Crawler:
             "__EVENTTARGET": f"ctl00$MainContent$TabContainer1$tabSelected$gvWishList$ctl{pos:02d}${action}"
         }
         return self.__postback(data=postdata)
+
+    def coursequery(self, cid: int):
+        self.checklogin()
+        postdata = {
+            "ctl00$MainContent$TabContainer1$tabSelected$tbSubID": f"{cid:04d}",
+            "ctl00$MainContent$TabContainer1$tabSelected$btnGetSub": "查詢"
+        }
+        r = self.__postback(data=postdata)
+        soup = BeautifulSoup(r.text, "html.parser")
+        table = soup.find("table", id="ctl00_MainContent_TabContainer1_tabSelected_gvToAdd")
+        trs = table.find_all("tr", limit=2)
+        tds = trs[1].find_all("td", limit=2)
+        return int(tds[1].font.string)

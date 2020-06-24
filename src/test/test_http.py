@@ -67,8 +67,13 @@ class TestHttp(unittest.TestCase):
         self.test_login()
         self.course.wishadd(1411)
         total, opened = self.course.wish_register(1411)
-        self.assertIsNotNone(total)
-        self.assertIsNotNone(opened)
+        self.assertIs(type(total), int)
+        self.assertIs(type(opened), int)
+
+    def test_coursequery(self):
+        self.test_login()
+        pos = self.course.coursequery(1411)
+        self.assertIs(type(pos), int)
 
 
 if __name__ == "__main__":
