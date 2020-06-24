@@ -72,8 +72,19 @@ class TestHttp(unittest.TestCase):
 
     def test_coursequery(self):
         self.test_login()
-        pos = self.course.coursequery(1411)
-        self.assertIs(type(pos), int)
+        self.course.coursequery(1411)
+
+    def test_course_add_del(self):
+        self.test_login()
+        s1 = self.course.selected()
+
+        self.course.coursedel(1411)
+        s2 = self.course.selected()
+        self.assertSetEqual(s1 - {1411}, s2)
+
+        self.course.courseadd(1411)
+        s3 = self.course.selected()
+        self.assertSetEqual(s1, s3)
 
 
 if __name__ == "__main__":

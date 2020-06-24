@@ -17,6 +17,7 @@ class Crawler:
     __host = ""
     __guid = ""
     __wishmap: Dict[int, int] = None  # cid -> position
+    __selected: Set[int] = set()  # cid
 
     def __init__(self):
         ft = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
@@ -73,11 +74,8 @@ class Crawler:
         self.__host, self.__guid = parse_url(r.url)
         self.__post_data = get_hidden_values(r.text)
         self.wishupdate(r.text)
+        self.courseupdate(r.text)
         return r
-
-    def checkwish(self, cid: int):
-        if cid not in self.__wishmap:
-            raise RuntimeError(f"course id {cid} is not in your wish list")
 
     def wishquery(self, cid: int) -> Dict[int, int]:
         self.checklogin()
@@ -103,6 +101,8 @@ class Crawler:
 
     def wishadd(self, cid: int):
         self.checklogin()
+        if cid in self.__wishmap:
+            raise RuntimeError(f"course id {cid} already in your wish list")
         m = self.wishquery(cid)
         pos = m[cid]
         postdata = {
@@ -112,8 +112,6 @@ class Crawler:
         self.wishupdate(r.text)
 
     def wishremove(self, cid: int):
-        self.checklogin()
-        self.checkwish(cid)
         r = self.__wishaction(cid, "btnRemoveItem")
         self.wishupdate(r.text)
 
@@ -137,25 +135,75 @@ class Crawler:
         return self.__wishmap.copy()
 
     def wish_addcourse(self, cid: int):
-        self.checklogin()
-        self.checkwish(cid)
         r = self.__wishaction(cid, "btnAdd")
         self.wishupdate(r.text)
 
     def wish_register(self, cid: int) -> Tuple[int, int]:
-        self.checklogin()
-        self.checkwish(cid)
         r = self.__wishaction(cid, "btnQuota")
         result = re.search(r'開放人數： *(\d+) */ *(\d+)', r.text)
         return int(result[1]), int(result[2])
 
     def __wishaction(self, cid: int, action: str):
         self.checklogin()
-        self.checkwish(cid)
+        if cid not in self.__wishmap:
+            raise RuntimeError(f"course id {cid} not in your wish list")
         pos = self.__wishmap[cid]
         postdata = {
-            "__EVENTTARGET": f"ctl00$MainContent$TabContainer1$tabSelected$gvWishList$ctl{pos:02d}${action}"
+            "__EVENTTARGET": f"ctl00$MainContent$TabContainer1$tabSelected$gvWishList$ctl{pos:02d}$"
         }
+        if action == "add":
+            postdata["__EVENTTARGET"] += "btnAdd"
+        elif action == "del":
+            postdata["__EVENTTARGET"] += "btnRemoveItem"
+        elif action == "quota":
+            postdata["__EVENTTARGET"] += "btnQuota"
+        else:
+            raise RuntimeError("Unknown action")
+        return self.__postback(data=postdata)
+
+    def selected(self):
+        return self.__selected.copy()
+
+    def coursequery(self, cid: int):
+        self.checklogin()
+        postdata = {
+            "ctl00$MainContent$TabContainer1$tabSelected$tbSubID": f"{cid:04d}",
+            "ctl00$MainContent$TabContainer1$tabSelected$btnGetSub": "查詢"
+        }
+        self.__postback(data=postdata)
+
+    def courseupdate(self, html: str):
+        soup = BeautifulSoup(html, "html.parser")
+        table = soup.find("table", id="ctl00_MainContent_TabContainer1_tabSelected_TabContainer2_perSubTab_gvPerSelPg")
+        trs = table.find_all("tr")
+        self.__selected = set([int(tr.find("td").a.string) for tr in trs[1:]])
+
+    def courseadd(self, cid: int):
+        if cid in self.__selected:
+            raise RuntimeError("course id {cid} already in selected courses")
+        r = self.__courseaction(cid, "add")
+        self.courseupdate(r.text)
+
+    def coursedel(self, cid: int):
+        if cid not in self.__selected:
+            raise RuntimeError(f"course id {cid} not in selected courses")
+        r = self.__courseaction(cid, "del")
+        self.courseupdate(r.text)
+
+    def __courseaction(self, cid: int, action: str):
+        self.checklogin()
+        self.coursequery(cid)
+        postdata = {
+            "__EVENTTARGET": "ctl00$MainContent$TabContainer1$tabSelected$"
+        }
+        if action == "add":
+            postdata["__EVENTTARGET"] += "gvToAdd"
+            postdata["__EVENTARGUMENT"] = "addCourse$0"
+        elif action == "del":
+            postdata["__EVENTTARGET"] += "gvToDel"
+            postdata["__EVENTARGUMENT"] = "delCourse$0"
+        else:
+            raise RuntimeError("Unknown action")
         return self.__postback(data=postdata)
 
     def coursequery(self, cid: int):
