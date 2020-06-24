@@ -8,17 +8,12 @@ from requests.cookies import RequestsCookieJar
 from .error import *
 from .util import *
 
-proxy = {
-    "http": "127.0.0.1:8086",
-    "https": "127.0.0.1:8086"
-}
-
 
 class Crawler:
-    logon: bool = False
+    __logon: bool = False
     __host = ""
     __guid = ""
-    __wmap: Dict[int, int] = {}  # cid -> position
+    __wishmap: Dict[int, int] = {}  # cid -> position
     __logger = None
     __session = Session()
     __post_data: Dict[str, str] = None
@@ -44,14 +39,18 @@ class Crawler:
     def close(self):
         self.__session.close()
 
+    def checklogin(self):
+        if not self.__logon:
+            raise RuntimeError("Please login first")
+
     def __post_back(self, url: str = "", data: Dict = None) -> Response:
         url = f"http://{self.__host}/NetPreSelect.aspx?guid={self.__guid}&lang=zh-tw" if not url else url
+        self.__logger.debug(url)
+        [self.__logger.debug(f"\t{k}: {v[:40]}") for k, v in self.__post_data.items()]
+        [self.__logger.debug(f"\t{k}: {v}") for k, v in data.items()]
         if data:
             self.__post_data.update(data)
         r = self.__session.post(url, data=self.__post_data)
-        self.__logger.debug(f"{url} {r.status_code}")
-        [self.__logger.debug(f"\t{k}: {v[:40]}") for k, v in self.__post_data.items()]
-        [self.__logger.debug(f"\t{k}: {v}") for k, v in data.items()]
         self.__post_data = get_hidden_values(r.text)
         return r
 
@@ -67,14 +66,14 @@ class Crawler:
         r = self.__post_back("https://course.fcu.edu.tw/Login.aspx", postdata)
         if "service" not in r.url:
             raise LoginError
-        self.logon = True
+        self.__logon = True
         self.__host, self.__guid = parse_url(r.url)
         self.__post_data = get_hidden_values(r.text)
+        self.updatewish(r.text)
         return r
 
     def query(self, cid: int) -> Dict[int, int]:
-        if not self.logon:
-            raise RuntimeError("Please login first")
+        self.checklogin()
         postdata = {
             "__EVENTTARGET": "ctl00$MainContent$TabContainer1$tabCourseSearch$wcCourseSearch$btnSearchOther",
             "ctl00$MainContent$TabContainer1$tabCourseSearch$wcCourseSearch$cbOtherCondition1": "on",
@@ -83,13 +82,52 @@ class Crawler:
         r = self.__post_back(data=postdata)
         soup = BeautifulSoup(r.text, 'html.parser')
         table = soup.find("table", id="ctl00_MainContent_TabContainer1_tabCourseSearch_wcCourseSearch_gvSearchResult")
-        mapping = {}
-        cnt = 2
-        if table is not None:
+        if table is None:
+            raise RuntimeError(f"Nothing found")
+        trs = table.find_all("tr")
+        querymap = {}
+        pos = 2
+        for tr in trs[1:]:
+            tds = tr.find_all("td", limit=2)
+            cid = int(tds[1].font.string)
+            querymap[cid] = pos
+            pos += 1
+        return querymap
+
+    def addwish(self, cid: int):
+        self.checklogin()
+        m = self.query(cid)
+        pos = m[cid]
+        postdata = {
+            f"ctl00$MainContent$TabContainer1$tabCourseSearch$wcCourseSearch$gvSearchResult$ctl{pos:02d}$btnAdd": "%E9%97%9C%E6%B3%A8"
+        }
+        r = self.__post_back(data=postdata)
+        self.updatewish(r.text)
+
+    def removewish(self, cid: int):
+        self.checklogin()
+        if cid not in self.__wishmap:
+            raise RuntimeError(f"course id {cid} is not in your wish list")
+        pos = self.__wishmap[cid]
+        postdata = {
+            "__EVENTTARGET": f"ctl00$MainContent$TabContainer1$tabSelected$gvWishList$ctl{pos:02d}$btnRemoveItem"
+        }
+        r = self.__post_back(data=postdata)
+        self.updatewish(r.text)
+
+    def updatewish(self, html: str):
+        soup = BeautifulSoup(html, "html.parser")
+        table = soup.find("table", id="ctl00_MainContent_TabContainer1_tabSelected_gvWishList")
+        m = {}
+        if table:
             trs = table.find_all("tr")
-            for tr in trs[1:]:
-                tds = tr.find_all("td")
+            pos = 2
+            for i in range(1, len(trs), 2):
+                tds = trs[i].find_all("td", limit=2)
                 cid = int(tds[1].font.string)
-                mapping[cid] = cnt
-                cnt += 1
-        return mapping
+                m[cid] = pos
+                pos += 2
+        self.__wishmap = m
+
+    def get_wishmap(self):
+        return self.__wishmap.copy()

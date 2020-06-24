@@ -34,6 +34,21 @@ class TestHttp(unittest.TestCase):
         m = self.course.query(1411)
         self.assertNotEqual(m, {})
 
+    def test_add_remove_wish(self):
+        self.test_login()
+        m = self.course.get_wishmap()
+        l1 = list(m.keys())
+        l1.append(1141)
+
+        self.course.addwish(1141)
+        m2 = self.course.get_wishmap()
+        l2 = list(m2.keys())
+        self.assertListEqual(l1, l2)
+
+        self.course.removewish(1141)
+        m3 = self.course.get_wishmap()
+        self.assertDictEqual(m, m3)
+
 
 if __name__ == "__main__":
     unittest.main()
