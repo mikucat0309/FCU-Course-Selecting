@@ -1,6 +1,5 @@
 import unittest
 
-from src.main import error
 from src.main import http
 
 
@@ -15,7 +14,7 @@ class TestHttp(unittest.TestCase):
         self.course.reset()
 
     @classmethod
-    def tearDownClass(cls) -> None:
+    def tearDownClass(cls):
         cls.course.close()
 
     def test_login(self):
@@ -26,7 +25,7 @@ class TestHttp(unittest.TestCase):
     def test_login_failed(self):
         username = "D0888011"
         password = "Wrong"
-        with self.assertRaises(error.LoginError):
+        with self.assertRaises(RuntimeError):
             self.course.login(username, password)
 
     def test_query(self):

@@ -1,23 +1,21 @@
 import logging
-from typing import *
 
 from bs4 import BeautifulSoup
 from requests import Session, Response
 from requests.cookies import RequestsCookieJar
 
-from .error import *
 from .util import *
 
 
 class Crawler:
-    __logger = None
-    __session = None
+    __logger: logging.Logger = None
+    __session: Session = None
     __post_data: Dict[str, str] = None
     __logon: bool = False
-    __host = ""
-    __guid = ""
+    __host: str = ""
+    __guid: str = ""
     __wishmap: Dict[int, int] = None  # cid -> position
-    __selected: Set[int] = set()  # cid
+    __selected: Set[int] = None  # cid
 
     def __init__(self):
         ft = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
@@ -28,22 +26,23 @@ class Crawler:
         self.__logger.level = logging.DEBUG
         self.__init()
 
-    def __init(self):
+    def __init(self) -> None:
         self.__session = Session()
         self.__session.cookies = RequestsCookieJar()
-        self.__wishmap = {}
         self.__logon = False
+        self.__wishmap = {}
+        self.__selected = set()
         r = self.__session.get("https://course.fcu.edu.tw")
         self.__post_data = get_hidden_values(r.text)
 
-    def reset(self):
+    def reset(self) -> None:
         self.close()
         self.__init()
 
-    def close(self):
+    def close(self) -> None:
         self.__session.close()
 
-    def checklogin(self):
+    def checklogin(self) -> None:
         if not self.__logon:
             raise RuntimeError("Please login first")
 
@@ -58,7 +57,7 @@ class Crawler:
         self.__post_data = get_hidden_values(r.text)
         return r
 
-    def login(self, username: str, password: str):
+    def login(self, username: str, password: str) -> Response:
         self.__session.get("https://course.fcu.edu.tw/validateCode.aspx")
         postdata = {
             "__EVENTTARGET": "ctl00$Login1$LoginButton",
@@ -69,13 +68,50 @@ class Crawler:
         }
         r = self.__postback("https://course.fcu.edu.tw/Login.aspx", postdata)
         if "service" not in r.url:
-            raise LoginError
+            raise RuntimeError("Wrong username/password")
         self.__logon = True
         self.__host, self.__guid = parse_url(r.url)
         self.__post_data = get_hidden_values(r.text)
         self.wishupdate(r.text)
         self.courseupdate(r.text)
         return r
+
+    def __wishaction(self, cid: int, action: str) -> Response:
+        self.checklogin()
+        if cid not in self.__wishmap:
+            raise RuntimeError(f"course id {cid} not in your wish list")
+        pos = self.__wishmap[cid]
+        postdata = {
+            "__EVENTTARGET": f"ctl00$MainContent$TabContainer1$tabSelected$gvWishList$ctl{pos:02d}$"
+        }
+        if action == "add":
+            postdata["__EVENTTARGET"] += "btnAdd"
+        elif action == "del":
+            postdata["__EVENTTARGET"] += "btnRemoveItem"
+        elif action == "quota":
+            postdata["__EVENTTARGET"] += "btnQuota"
+        else:
+            raise RuntimeError("Unknown action")
+        return self.__postback(data=postdata)
+
+    def wishmap(self) -> Dict[int, int]:
+        self.checklogin()
+        return self.__wishmap.copy()
+
+    def wishupdate(self, html: str) -> None:
+        self.checklogin()
+        soup = BeautifulSoup(html, "html.parser")
+        table = soup.find("table", id="ctl00_MainContent_TabContainer1_tabSelected_gvWishList")
+        m = {}
+        if table:
+            trs = table.find_all("tr")
+            pos = 2
+            for i in range(1, len(trs), 2):
+                tds = trs[i].find_all("td", limit=2)
+                cid = int(tds[1].font.string)
+                m[cid] = pos
+                pos += 2
+        self.__wishmap = m
 
     def wishquery(self, cid: int) -> Dict[int, int]:
         self.checklogin()
@@ -99,7 +135,7 @@ class Crawler:
             pos += 1
         return querymap
 
-    def wishadd(self, cid: int):
+    def wishadd(self, cid: int) -> None:
         self.checklogin()
         if cid in self.__wishmap:
             raise RuntimeError(f"course id {cid} already in your wish list")
@@ -111,30 +147,11 @@ class Crawler:
         r = self.__postback(data=postdata)
         self.wishupdate(r.text)
 
-    def wishremove(self, cid: int):
+    def wishremove(self, cid: int) -> None:
         r = self.__wishaction(cid, "btnRemoveItem")
         self.wishupdate(r.text)
 
-    def wishupdate(self, html: str):
-        self.checklogin()
-        soup = BeautifulSoup(html, "html.parser")
-        table = soup.find("table", id="ctl00_MainContent_TabContainer1_tabSelected_gvWishList")
-        m = {}
-        if table:
-            trs = table.find_all("tr")
-            pos = 2
-            for i in range(1, len(trs), 2):
-                tds = trs[i].find_all("td", limit=2)
-                cid = int(tds[1].font.string)
-                m[cid] = pos
-                pos += 2
-        self.__wishmap = m
-
-    def wishmap(self):
-        self.checklogin()
-        return self.__wishmap.copy()
-
-    def wish_addcourse(self, cid: int):
+    def wish_addcourse(self, cid: int) -> None:
         r = self.__wishaction(cid, "btnAdd")
         self.wishupdate(r.text)
 
@@ -143,54 +160,7 @@ class Crawler:
         result = re.search(r'開放人數： *(\d+) */ *(\d+)', r.text)
         return int(result[1]), int(result[2])
 
-    def __wishaction(self, cid: int, action: str):
-        self.checklogin()
-        if cid not in self.__wishmap:
-            raise RuntimeError(f"course id {cid} not in your wish list")
-        pos = self.__wishmap[cid]
-        postdata = {
-            "__EVENTTARGET": f"ctl00$MainContent$TabContainer1$tabSelected$gvWishList$ctl{pos:02d}$"
-        }
-        if action == "add":
-            postdata["__EVENTTARGET"] += "btnAdd"
-        elif action == "del":
-            postdata["__EVENTTARGET"] += "btnRemoveItem"
-        elif action == "quota":
-            postdata["__EVENTTARGET"] += "btnQuota"
-        else:
-            raise RuntimeError("Unknown action")
-        return self.__postback(data=postdata)
-
-    def selected(self):
-        return self.__selected.copy()
-
-    def coursequery(self, cid: int):
-        self.checklogin()
-        postdata = {
-            "ctl00$MainContent$TabContainer1$tabSelected$tbSubID": f"{cid:04d}",
-            "ctl00$MainContent$TabContainer1$tabSelected$btnGetSub": "查詢"
-        }
-        self.__postback(data=postdata)
-
-    def courseupdate(self, html: str):
-        soup = BeautifulSoup(html, "html.parser")
-        table = soup.find("table", id="ctl00_MainContent_TabContainer1_tabSelected_TabContainer2_perSubTab_gvPerSelPg")
-        trs = table.find_all("tr")
-        self.__selected = set([int(tr.find("td").a.string) for tr in trs[1:]])
-
-    def courseadd(self, cid: int):
-        if cid in self.__selected:
-            raise RuntimeError("course id {cid} already in selected courses")
-        r = self.__courseaction(cid, "add")
-        self.courseupdate(r.text)
-
-    def coursedel(self, cid: int):
-        if cid not in self.__selected:
-            raise RuntimeError(f"course id {cid} not in selected courses")
-        r = self.__courseaction(cid, "del")
-        self.courseupdate(r.text)
-
-    def __courseaction(self, cid: int, action: str):
+    def __courseaction(self, cid: int, action: str) -> Response:
         self.checklogin()
         self.coursequery(cid)
         postdata = {
@@ -206,15 +176,31 @@ class Crawler:
             raise RuntimeError("Unknown action")
         return self.__postback(data=postdata)
 
-    def coursequery(self, cid: int):
+    def selected(self) -> Set[int]:
+        return self.__selected.copy()
+
+    def courseupdate(self, html: str) -> None:
+        soup = BeautifulSoup(html, "html.parser")
+        table = soup.find("table", id="ctl00_MainContent_TabContainer1_tabSelected_TabContainer2_perSubTab_gvPerSelPg")
+        trs = table.find_all("tr")
+        self.__selected = set([int(tr.find("td").a.string) for tr in trs[1:]])
+
+    def coursequery(self, cid: int) -> None:
         self.checklogin()
         postdata = {
             "ctl00$MainContent$TabContainer1$tabSelected$tbSubID": f"{cid:04d}",
             "ctl00$MainContent$TabContainer1$tabSelected$btnGetSub": "查詢"
         }
-        r = self.__postback(data=postdata)
-        soup = BeautifulSoup(r.text, "html.parser")
-        table = soup.find("table", id="ctl00_MainContent_TabContainer1_tabSelected_gvToAdd")
-        trs = table.find_all("tr", limit=2)
-        tds = trs[1].find_all("td", limit=2)
-        return int(tds[1].font.string)
+        self.__postback(data=postdata)
+
+    def courseadd(self, cid: int) -> None:
+        if cid in self.__selected:
+            raise RuntimeError("course id {cid} already in selected courses")
+        r = self.__courseaction(cid, "add")
+        self.courseupdate(r.text)
+
+    def coursedel(self, cid: int) -> None:
+        if cid not in self.__selected:
+            raise RuntimeError(f"course id {cid} not in selected courses")
+        r = self.__courseaction(cid, "del")
+        self.courseupdate(r.text)
