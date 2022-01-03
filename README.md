@@ -1,3 +1,5 @@
+本專案已不再維護，且逢甲選課系統已新增圖形驗證碼，本專案部份功能無法正常執行
+
 # FCU Course-Selecting System
 
 ## Description
